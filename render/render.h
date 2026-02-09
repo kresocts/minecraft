@@ -4,6 +4,10 @@
 #include "raylib.h"
 #include "world/world.h"
 
+#include "assets/atlas.h"
+#include "world/blocks.h"
+#include "ui/hotbar.h"
+
 typedef struct RenderConfig {
     Color clearColor;
     int gridSlices;
@@ -25,6 +29,14 @@ typedef struct RenderOverlay {
 
 
 void Render_Init(RenderConfig *rc);
-void Render_DrawFrame(const RenderConfig *rc, Camera3D cam, const World *world, const RenderOverlay *ovr);
+void Render_DrawFrame(
+    const RenderConfig *rc, 
+    Camera3D cam, 
+    const World *world, 
+    const RenderOverlay *ovr,
+    const Atlas *atlas,
+    const BlockRegistry *blocks,
+    const Hotbar *hotbar
+);
 
 #endif // RENDER_H

@@ -1,5 +1,7 @@
 #include "render.h"
 #include <math.h>
+#include <stddef.h>
+#include "rlgl.h"
 
 // ---------- helpers ----------
 static void DrawCrosshair(void)
@@ -11,30 +13,6 @@ static void DrawCrosshair(void)
 
     DrawLine(cx - 6, cy, cx + 6, cy, RAYWHITE);
     DrawLine(cx, cy - 6, cx, cy + 6, RAYWHITE);
-}
-
-static Color BlockColor(BlockId id)
-{
-    switch (id) {
-        case BLOCK_DIRT:  return (Color){ 120,  85,  60, 255 };
-        case BLOCK_GRASS: return (Color){  70, 170,  70, 255 };
-        case BLOCK_STONE: return (Color){ 130, 130, 140, 255 };
-        default:          return (Color){   0,   0,   0,   0 };
-    }
-}
-
-static bool IsExposed(const World *w, int x, int y, int z)
-{
-    static const int dx[6] = {  1, -1,  0,  0,  0,  0 };
-    static const int dy[6] = {  0,  0,  1, -1,  0,  0 };
-    static const int dz[6] = {  0,  0,  0,  0,  1, -1 };
-
-    for (int i = 0; i < 6; i++) {
-        if (World_GetBlock(w, x + dx[i], y + dy[i], z + dz[i]) == BLOCK_AIR) {
-            return true;
-        }
-    }
-    return false;
 }
 
 static int ClampInt(int v, int mn, int mx)
@@ -52,12 +30,119 @@ static int FloorDivPosInt(int a, int b) // b > 0
     return q;
 }
 
-static void Render_DrawWorld(const World *w, Vector3 camPos, int viewDistChunks)
+
+static Color BlockColor(BlockId id)
+{
+    switch (id) {
+        case BLOCK_DIRT:  return (Color){ 120,  85,  60, 255 };
+        case BLOCK_GRASS: return (Color){  70, 170,  70, 255 };
+        case BLOCK_STONE: return (Color){ 130, 130, 140, 255 };
+        default:          return (Color){   0,   0,   0,   0 };
+    }
+}
+
+static inline BlockId GetNeighborFast(const World *w, const Chunk *c,
+                                      int baseX, int baseZ,
+                                      int lx, int y, int lz,
+                                      int dx, int dy, int dz)
+{
+    int nx = lx + dx;
+    int ny = y  + dy;
+    int nz = lz + dz;
+
+    if (ny < 0 || ny >= CHUNK_Y) return BLOCK_AIR;
+
+    // unutar istog chunka -> brzo
+    if ((unsigned)nx < CHUNK_X && (unsigned)nz < CHUNK_Z) {
+        return Chunk_GetLocal(c, nx, ny, nz);
+    }
+
+    // preko ruba -> world lookup
+    return World_GetBlock(w, baseX + nx, ny, baseZ + nz);
+}
+
+static bool IsExposedFast(const World *w, const Chunk *c,
+                          int baseX, int baseZ,
+                          int lx, int y, int lz)
+{
+    static const int dx[6] = {  1, -1,  0,  0,  0,  0 };
+    static const int dy[6] = {  0,  0,  1, -1,  0,  0 };
+    static const int dz[6] = {  0,  0,  0,  0,  1, -1 };
+
+    for (int i = 0; i < 6; i++) {
+        if (GetNeighborFast(w, c, baseX, baseZ, lx, y, lz, dx[i], dy[i], dz[i]) == BLOCK_AIR) {
+            return true;
+        }
+    }
+    return false;
+}
+static void DrawCubeTextured(Texture2D tex, Vector3 center, float w, float h, float l)
+{
+    float x0 = center.x - w*0.5f, x1 = center.x + w*0.5f;
+    float y0 = center.y - h*0.5f, y1 = center.y + h*0.5f;
+    float z0 = center.z - l*0.5f, z1 = center.z + l*0.5f;
+
+    rlSetTexture(tex.id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(255, 255, 255, 255);
+
+    // Front (+Z)
+    rlNormal3f(0, 0, 1);
+    rlTexCoord2f(0, 1); rlVertex3f(x0, y0, z1);
+    rlTexCoord2f(1, 1); rlVertex3f(x1, y0, z1);
+    rlTexCoord2f(1, 0); rlVertex3f(x1, y1, z1);
+    rlTexCoord2f(0, 0); rlVertex3f(x0, y1, z1);
+
+    // Back (-Z)
+    rlNormal3f(0, 0, -1);
+    rlTexCoord2f(0, 1); rlVertex3f(x1, y0, z0);
+    rlTexCoord2f(1, 1); rlVertex3f(x0, y0, z0);
+    rlTexCoord2f(1, 0); rlVertex3f(x0, y1, z0);
+    rlTexCoord2f(0, 0); rlVertex3f(x1, y1, z0);
+
+    // Right (+X)
+    rlNormal3f(1, 0, 0);
+    rlTexCoord2f(0, 1); rlVertex3f(x1, y0, z1);
+    rlTexCoord2f(1, 1); rlVertex3f(x1, y0, z0);
+    rlTexCoord2f(1, 0); rlVertex3f(x1, y1, z0);
+    rlTexCoord2f(0, 0); rlVertex3f(x1, y1, z1);
+
+    // Left (-X)
+    rlNormal3f(-1, 0, 0);
+    rlTexCoord2f(0, 1); rlVertex3f(x0, y0, z0);
+    rlTexCoord2f(1, 1); rlVertex3f(x0, y0, z1);
+    rlTexCoord2f(1, 0); rlVertex3f(x0, y1, z1);
+    rlTexCoord2f(0, 0); rlVertex3f(x0, y1, z0);
+
+    // Top (+Y)
+    rlNormal3f(0, 1, 0);
+    rlTexCoord2f(0, 1); rlVertex3f(x0, y1, z1);
+    rlTexCoord2f(1, 1); rlVertex3f(x1, y1, z1);
+    rlTexCoord2f(1, 0); rlVertex3f(x1, y1, z0);
+    rlTexCoord2f(0, 0); rlVertex3f(x0, y1, z0);
+
+    // Bottom (-Y)
+    rlNormal3f(0, -1, 0);
+    rlTexCoord2f(0, 1); rlVertex3f(x0, y0, z0);
+    rlTexCoord2f(1, 1); rlVertex3f(x1, y0, z0);
+    rlTexCoord2f(1, 0); rlVertex3f(x1, y0, z1);
+    rlTexCoord2f(0, 0); rlVertex3f(x0, y0, z1);
+
+    rlEnd();
+    rlSetTexture(0);
+}
+
+static void Render_DrawWorld_Textured(
+    const World *w,
+    Vector3 camPos,
+    int viewDistChunks,
+    const Atlas *atlas,
+    const BlockRegistry *blocks
+)
 {
     int camX = (int)floorf(camPos.x);
     int camZ = (int)floorf(camPos.z);
 
-    // signed chunk coords (mogu biti negativni)
     int centerCX = FloorDivPosInt(camX, CHUNK_X);
     int centerCZ = FloorDivPosInt(camZ, CHUNK_Z);
 
@@ -66,16 +151,17 @@ static void Render_DrawWorld(const World *w, Vector3 camPos, int viewDistChunks)
     int minCZ = ClampInt(centerCZ - viewDistChunks, WORLD_MIN_CHUNK_Z, WORLD_MAX_CHUNK_Z - 1);
     int maxCZ = ClampInt(centerCZ + viewDistChunks, WORLD_MIN_CHUNK_Z, WORLD_MAX_CHUNK_Z - 1);
 
+    bool hasAtlas = (atlas && atlas->tiles != NULL && blocks);
+
     for (int cx = minCX; cx <= maxCX; cx++) {
         for (int cz = minCZ; cz <= maxCZ; cz++) {
 
-            // pretvori signed chunk coord -> array index
             int ix = cx - WORLD_MIN_CHUNK_X;
             int iz = cz - WORLD_MIN_CHUNK_Z;
 
             const Chunk *c = &w->chunks[ix][iz];
 
-            int baseX = cx * CHUNK_X;   // OVO je sad ispravno i može biti negativno
+            int baseX = cx * CHUNK_X;
             int baseZ = cz * CHUNK_Z;
 
             for (int lx = 0; lx < CHUNK_X; lx++) {
@@ -85,16 +171,30 @@ static void Render_DrawWorld(const World *w, Vector3 camPos, int viewDistChunks)
                         BlockId id = Chunk_GetLocal(c, lx, y, lz);
                         if (id == BLOCK_AIR) continue;
 
+                        // koristi svoj IsExposedFast(...) ovdje:
+                        // if (!IsExposedFast(w, c, baseX, baseZ, lx, y, lz)) continue;
+
                         int x = baseX + lx;
                         int z = baseZ + lz;
 
-                        if (!IsExposed(w, x, y, z)) continue;
-
                         Vector3 center = (Vector3){ x + 0.5f, y + 0.5f, z + 0.5f };
-                        Color col = BlockColor(id);
 
-                        DrawCube(center, 1.0f, 1.0f, 1.0f, col);
-                        DrawCubeWires(center, 1.0f, 1.0f, 1.0f, (Color){ 0, 0, 0, 80 });
+                        if (hasAtlas) {
+                            const BlockDef *def = Blocks_Get(blocks, id);
+                            if (def->tileX >= 0) {
+                                Texture2D tile = Atlas_GetTile(atlas, def->tileX, def->tileY);
+                            if (tile.id != 0) {
+                                DrawCubeTextured(tile, center, 1.0f, 1.0f, 1.0f);
+
+                                continue;
+                            }
+
+                                continue;
+                            }
+                        }
+
+                        // fallback ako nema atlasa / tile nije definiran
+                        DrawCube(center, 1.0f, 1.0f, 1.0f, (Color){ 120,120,120,255 });
                     }
                 }
             }
@@ -131,14 +231,22 @@ void Render_Init(RenderConfig *rc)
 
 }
 
-void Render_DrawFrame(const RenderConfig *rc, Camera3D cam, const World *world, const RenderOverlay *ovr)
+void Render_DrawFrame(
+    const RenderConfig *rc, 
+    Camera3D cam, 
+    const World *world, 
+    const RenderOverlay *ovr,
+    const Atlas *atlas,
+    const BlockRegistry *blocks,
+    const Hotbar *hotbar
+)
 {
     BeginDrawing();
     ClearBackground(rc->clearColor);
 
     BeginMode3D(cam);
 
-    Render_DrawWorld(world, cam.position, rc->viewDistChunks);
+    Render_DrawWorld_Textured(world, cam.position, rc->viewDistChunks, atlas, blocks);
 
     // BITNO: overlay mora biti unutar BeginMode3D/EndMode3D
     Render_DrawOverlay3D(ovr);
@@ -157,6 +265,10 @@ void Render_DrawFrame(const RenderConfig *rc, Camera3D cam, const World *world, 
         DrawCrosshair();
     }
 
+    // hotbar UI (2D)
+    if (hotbar && atlas && blocks) {
+        Hotbar_Draw(hotbar, atlas, blocks);
+    }
     // Debug (opcionalno): pokaži jel ima hit
     // if (ovr && ovr->hasHit) DrawText("HIT", 20, 50, 20, GREEN);
     // else DrawText("NO HIT", 20, 50, 20, RED);

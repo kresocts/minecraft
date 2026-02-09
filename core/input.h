@@ -16,6 +16,8 @@ typedef struct InputState {
     bool ctrl;
     bool lmbPressed;
     bool place_block;
+    int selectSlot;     // 0..8 ili -1
+    float wheelMove;    // scroll (hotbar)
 
 } InputState;
 
