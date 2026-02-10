@@ -1,21 +1,12 @@
 //spremnik blokova
 #ifndef CHUNK_H
 #define CHUNK_H
-
+#include "core/block_id.h"
 #include <stdbool.h>
-
-typedef unsigned char BlockId;
-
-enum {
-    BLOCK_AIR   = 0,
-    BLOCK_DIRT  = 1,
-    BLOCK_GRASS = 2,
-    BLOCK_STONE = 3
-};
-
 #define CHUNK_X 16
 #define CHUNK_Y 16
 #define CHUNK_Z 16
+
 
 typedef struct Chunk {
     BlockId blocks[CHUNK_X * CHUNK_Y * CHUNK_Z];

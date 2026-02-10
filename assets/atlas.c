@@ -1,90 +1,58 @@
 #include "atlas.h"
-#include <stdlib.h>
-#include "raylib.h"
-
-
-static int Atlas_Index(const Atlas *a, int tx, int ty)
-{
-    return tx + a->tilesX * ty;
-}
 
 bool Atlas_Load(Atlas *a, const char *path, int tileSize)
 {
+    if (!a || tileSize <= 0) return false;
+
+    a->tex = (Texture2D){0};
+    a->texW = a->texH = 0;
     a->tileSize = tileSize;
-    a->tilesX = 0;
-    a->tilesY = 0;
-    a->tiles = NULL;
+    a->tilesX = a->tilesY = 0;
 
     Image img = LoadImage(path);
-    if (img.data == NULL || img.width <= 0 || img.height <= 0) {
+    if (!img.data || img.width <= 0 || img.height <= 0) return false;
+
+    // (preporuka) zahtijevaj da je spritesheet djeljiv s tileSize
+    if ((img.width % tileSize) != 0 || (img.height % tileSize) != 0) {
+        UnloadImage(img);
         return false;
     }
 
+    a->texW = img.width;
+    a->texH = img.height;
     a->tilesX = img.width / tileSize;
     a->tilesY = img.height / tileSize;
 
-
-    TraceLog(LOG_INFO, "Atlas_Load: %s | img=%dx%d | tileSize=%d | tiles=%dx%d",
-         path, img.width, img.height, tileSize, a->tilesX, a->tilesY);
-
-    if (a->tilesX <= 0 || a->tilesY <= 0) {
-        UnloadImage(img);
-        return false;
-    }
-
-    int count = a->tilesX * a->tilesY;
-    a->tiles = (Texture2D *)malloc(sizeof(Texture2D) * count);
-    if (!a->tiles) {
-        UnloadImage(img);
-        return false;
-    }
-
-    // inicijaliziraj na 0 da Atlas_Unload bude safe i ako nešto pukne
-    for (int i = 0; i < count; i++) a->tiles[i] = (Texture2D){0};
-
-    for (int ty = 0; ty < a->tilesY; ty++) {
-        for (int tx = 0; tx < a->tilesX; tx++) {
-            Rectangle r = {
-                (float)(tx * tileSize),
-                (float)(ty * tileSize),
-                (float)tileSize,
-                (float)tileSize
-            };
-
-            Image tileImg = ImageFromImage(img, r);
-            Texture2D t = LoadTextureFromImage(tileImg);
-            UnloadImage(tileImg);
-
-            a->tiles[Atlas_Index(a, tx, ty)] = t;
-        }
-    }
-
+    a->tex = LoadTextureFromImage(img);
     UnloadImage(img);
-    return true;
+
+    return a->tex.id != 0;
 }
 
 void Atlas_Unload(Atlas *a)
 {
     if (!a) return;
+    if (a->tex.id != 0) UnloadTexture(a->tex);
 
-    if (a->tiles) {
-        int count = a->tilesX * a->tilesY;
-        for (int i = 0; i < count; i++) {
-            if (a->tiles[i].id != 0) UnloadTexture(a->tiles[i]);
-        }
-        free(a->tiles);
-    }
-
-    a->tiles = NULL;
-    a->tilesX = 0;
-    a->tilesY = 0;
-    a->tileSize = 0;
+    *a = (Atlas){0};
 }
 
-Texture2D Atlas_GetTile(const Atlas *a, int tileX, int tileY)
+bool Atlas_IsLoaded(const Atlas *a)
 {
-    if (!a || !a->tiles) return (Texture2D){0};
-    if (tileX < 0 || tileX >= a->tilesX) return (Texture2D){0};
-    if (tileY < 0 || tileY >= a->tilesY) return (Texture2D){0};
-    return a->tiles[Atlas_Index(a, tileX, tileY)];
+    return a && a->tex.id != 0 && a->tilesX > 0 && a->tilesY > 0;
+}
+
+Rectangle Atlas_SourceRect(const Atlas *a, int tileX, int tileY)
+{
+    if (!Atlas_IsLoaded(a)) return (Rectangle){0};
+
+    if (tileX < 0 || tileX >= a->tilesX) return (Rectangle){0};
+    if (tileY < 0 || tileY >= a->tilesY) return (Rectangle){0};
+
+    return (Rectangle){
+        (float)(tileX * a->tileSize),
+        (float)(tileY * a->tileSize),
+        (float)a->tileSize,
+        (float)a->tileSize
+    };
 }

@@ -11,7 +11,7 @@
 #include "gameplay/interaction.h"
 
 #include "assets/atlas.h"
-#include "world/blocks.h"
+#include "core/blocks.h"
 #include "ui/hotbar.h"
 
 struct Game {
@@ -35,12 +35,16 @@ Game *Game_Create(void)
     if (!g) return NULL;
 
     InitWindow(1280, 720, "MC-like");
-    Atlas_Load(&g->atlas, "assets/blocks.png", 32);
+    SetTargetFPS(144);
+    DisableCursor();
+    if (!Atlas_Load(&g->atlas, "assets/blocks.png", 32)) {
+        CloseWindow();
+        free(g);
+        return NULL;
+    }
 
     Blocks_Init(&g->blocks);
     Hotbar_Init(&g->hotbar);
-    SetTargetFPS(144);
-    DisableCursor();
 
     Player_Init(&g->player);
     g->input = (InputState){0};
@@ -57,9 +61,9 @@ Game *Game_Create(void)
 void Game_Destroy(Game *g)
 {
     if (!g) return;
+    Atlas_Unload(&g->atlas);
 
     CloseWindow();
-    Atlas_Unload(&g->atlas);
 
     free(g);
 }
@@ -80,7 +84,7 @@ void Game_Tick(Game *g)
     Player_Update(&g->player, &g->input, dt);
 
     Camera3D cam = Player_GetCamera(&g->player);
-    
+
     g->interact.placeBlock = Hotbar_SelectedBlock(&g->hotbar);
     Interaction_Update(&g->interact, &g->world, cam, &g->input);
 
@@ -93,5 +97,21 @@ void Game_Tick(Game *g)
         ovr.hitZ = g->interact.hit.z;
     }
 
-    Render_DrawFrame(&g->rc, cam, &g->world, &ovr, &g->atlas, &g->blocks, &g->hotbar);
+    ovr.hasPlace = g->interact.hasPlace;
+    if (ovr.hasPlace) {
+        ovr.placeX = g->interact.placeX;
+        ovr.placeY = g->interact.placeY;
+        ovr.placeZ = g->interact.placeZ;
+    }
+
+    RenderFrameInput rfi = {
+        .cam = cam,
+        .world = &g->world,
+        .ovr = &ovr,
+        .atlas = &g->atlas,
+        .blocks = &g->blocks,
+        .hotbar = &g->hotbar
+    };
+
+    Render_DrawFrame(&g->rc, &rfi);
 }

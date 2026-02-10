@@ -3,6 +3,10 @@
 #include <stddef.h>
 #include "rlgl.h"
 
+#include "assets/atlas.h"
+#include "core/blocks.h"
+#include "ui/hotbar.h"
+
 // ---------- helpers ----------
 static void DrawCrosshair(void)
 {
@@ -28,17 +32,6 @@ static int FloorDivPosInt(int a, int b) // b > 0
     int r = a % b;
     if (r < 0) q -= 1;
     return q;
-}
-
-
-static Color BlockColor(BlockId id)
-{
-    switch (id) {
-        case BLOCK_DIRT:  return (Color){ 120,  85,  60, 255 };
-        case BLOCK_GRASS: return (Color){  70, 170,  70, 255 };
-        case BLOCK_STONE: return (Color){ 130, 130, 140, 255 };
-        default:          return (Color){   0,   0,   0,   0 };
-    }
 }
 
 static inline BlockId GetNeighborFast(const World *w, const Chunk *c,
@@ -76,57 +69,74 @@ static bool IsExposedFast(const World *w, const Chunk *c,
     }
     return false;
 }
-static void DrawCubeTextured(Texture2D tex, Vector3 center, float w, float h, float l)
+
+static void DrawCubeTexturedAtlas(Texture2D atlasTex, int atlasW, int atlasH,
+                                  Rectangle srcPx, Vector3 center,
+                                  float w, float h, float l)
 {
     float x0 = center.x - w*0.5f, x1 = center.x + w*0.5f;
     float y0 = center.y - h*0.5f, y1 = center.y + h*0.5f;
     float z0 = center.z - l*0.5f, z1 = center.z + l*0.5f;
 
-    rlSetTexture(tex.id);
+    // --- UVs (pixel -> normalized), s half-pixel inset protiv bleedinga ---
+    float invW = 1.0f / (float)atlasW;
+    float invH = 1.0f / (float)atlasH;
+
+    float hx = 0.5f * invW;
+    float hy = 0.5f * invH;
+
+    float u0 = (srcPx.x) * invW + hx;
+    float u1 = (srcPx.x + srcPx.width) * invW - hx;
+
+    // invert V: srcPx.y je od gore, UV je od dolje
+    float v1 = 1.0f - (srcPx.y) * invH - hy;
+    float v0 = 1.0f - (srcPx.y + srcPx.height) * invH + hy;
+
+    rlSetTexture(atlasTex.id);
     rlBegin(RL_QUADS);
     rlColor4ub(255, 255, 255, 255);
 
     // Front (+Z)
     rlNormal3f(0, 0, 1);
-    rlTexCoord2f(0, 1); rlVertex3f(x0, y0, z1);
-    rlTexCoord2f(1, 1); rlVertex3f(x1, y0, z1);
-    rlTexCoord2f(1, 0); rlVertex3f(x1, y1, z1);
-    rlTexCoord2f(0, 0); rlVertex3f(x0, y1, z1);
+    rlTexCoord2f(u0, v1); rlVertex3f(x0, y0, z1);
+    rlTexCoord2f(u1, v1); rlVertex3f(x1, y0, z1);
+    rlTexCoord2f(u1, v0); rlVertex3f(x1, y1, z1);
+    rlTexCoord2f(u0, v0); rlVertex3f(x0, y1, z1);
 
     // Back (-Z)
     rlNormal3f(0, 0, -1);
-    rlTexCoord2f(0, 1); rlVertex3f(x1, y0, z0);
-    rlTexCoord2f(1, 1); rlVertex3f(x0, y0, z0);
-    rlTexCoord2f(1, 0); rlVertex3f(x0, y1, z0);
-    rlTexCoord2f(0, 0); rlVertex3f(x1, y1, z0);
+    rlTexCoord2f(u0, v1); rlVertex3f(x1, y0, z0);
+    rlTexCoord2f(u1, v1); rlVertex3f(x0, y0, z0);
+    rlTexCoord2f(u1, v0); rlVertex3f(x0, y1, z0);
+    rlTexCoord2f(u0, v0); rlVertex3f(x1, y1, z0);
 
     // Right (+X)
     rlNormal3f(1, 0, 0);
-    rlTexCoord2f(0, 1); rlVertex3f(x1, y0, z1);
-    rlTexCoord2f(1, 1); rlVertex3f(x1, y0, z0);
-    rlTexCoord2f(1, 0); rlVertex3f(x1, y1, z0);
-    rlTexCoord2f(0, 0); rlVertex3f(x1, y1, z1);
+    rlTexCoord2f(u0, v1); rlVertex3f(x1, y0, z1);
+    rlTexCoord2f(u1, v1); rlVertex3f(x1, y0, z0);
+    rlTexCoord2f(u1, v0); rlVertex3f(x1, y1, z0);
+    rlTexCoord2f(u0, v0); rlVertex3f(x1, y1, z1);
 
     // Left (-X)
     rlNormal3f(-1, 0, 0);
-    rlTexCoord2f(0, 1); rlVertex3f(x0, y0, z0);
-    rlTexCoord2f(1, 1); rlVertex3f(x0, y0, z1);
-    rlTexCoord2f(1, 0); rlVertex3f(x0, y1, z1);
-    rlTexCoord2f(0, 0); rlVertex3f(x0, y1, z0);
+    rlTexCoord2f(u0, v1); rlVertex3f(x0, y0, z0);
+    rlTexCoord2f(u1, v1); rlVertex3f(x0, y0, z1);
+    rlTexCoord2f(u1, v0); rlVertex3f(x0, y1, z1);
+    rlTexCoord2f(u0, v0); rlVertex3f(x0, y1, z0);
 
     // Top (+Y)
     rlNormal3f(0, 1, 0);
-    rlTexCoord2f(0, 1); rlVertex3f(x0, y1, z1);
-    rlTexCoord2f(1, 1); rlVertex3f(x1, y1, z1);
-    rlTexCoord2f(1, 0); rlVertex3f(x1, y1, z0);
-    rlTexCoord2f(0, 0); rlVertex3f(x0, y1, z0);
+    rlTexCoord2f(u0, v1); rlVertex3f(x0, y1, z1);
+    rlTexCoord2f(u1, v1); rlVertex3f(x1, y1, z1);
+    rlTexCoord2f(u1, v0); rlVertex3f(x1, y1, z0);
+    rlTexCoord2f(u0, v0); rlVertex3f(x0, y1, z0);
 
     // Bottom (-Y)
     rlNormal3f(0, -1, 0);
-    rlTexCoord2f(0, 1); rlVertex3f(x0, y0, z0);
-    rlTexCoord2f(1, 1); rlVertex3f(x1, y0, z0);
-    rlTexCoord2f(1, 0); rlVertex3f(x1, y0, z1);
-    rlTexCoord2f(0, 0); rlVertex3f(x0, y0, z1);
+    rlTexCoord2f(u0, v1); rlVertex3f(x0, y0, z0);
+    rlTexCoord2f(u1, v1); rlVertex3f(x1, y0, z0);
+    rlTexCoord2f(u1, v0); rlVertex3f(x1, y0, z1);
+    rlTexCoord2f(u0, v0); rlVertex3f(x0, y0, z1);
 
     rlEnd();
     rlSetTexture(0);
@@ -151,7 +161,7 @@ static void Render_DrawWorld_Textured(
     int minCZ = ClampInt(centerCZ - viewDistChunks, WORLD_MIN_CHUNK_Z, WORLD_MAX_CHUNK_Z - 1);
     int maxCZ = ClampInt(centerCZ + viewDistChunks, WORLD_MIN_CHUNK_Z, WORLD_MAX_CHUNK_Z - 1);
 
-    bool hasAtlas = (atlas && atlas->tiles != NULL && blocks);
+    bool hasAtlas = Atlas_IsLoaded(atlas) && blocks;
 
     for (int cx = minCX; cx <= maxCX; cx++) {
         for (int cz = minCZ; cz <= maxCZ; cz++) {
@@ -171,25 +181,21 @@ static void Render_DrawWorld_Textured(
                         BlockId id = Chunk_GetLocal(c, lx, y, lz);
                         if (id == BLOCK_AIR) continue;
 
-                        // koristi svoj IsExposedFast(...) ovdje:
-                        // if (!IsExposedFast(w, c, baseX, baseZ, lx, y, lz)) continue;
+                        if (!IsExposedFast(w, c, baseX, baseZ, lx, y, lz)) continue;
 
                         int x = baseX + lx;
                         int z = baseZ + lz;
-
                         Vector3 center = (Vector3){ x + 0.5f, y + 0.5f, z + 0.5f };
 
                         if (hasAtlas) {
                             const BlockDef *def = Blocks_Get(blocks, id);
-                            if (def->tileX >= 0) {
-                                Texture2D tile = Atlas_GetTile(atlas, def->tileX, def->tileY);
-                            if (tile.id != 0) {
-                                DrawCubeTextured(tile, center, 1.0f, 1.0f, 1.0f);
-
-                                continue;
-                            }
-
-                                continue;
+                            if (def && def->tileX >= 0 && def->tileY >= 0) {
+                                Rectangle src = Atlas_SourceRect(atlas, def->tileX, def->tileY);
+                                if (src.width > 0.0f && src.height > 0.0f) {
+                                    DrawCubeTexturedAtlas(atlas->tex, atlas->texW, atlas->texH,
+                                                          src, center, 1.0f, 1.0f, 1.0f);
+                                    continue;
+                                }
                             }
                         }
 
@@ -213,10 +219,9 @@ static void Render_DrawOverlay3D(const RenderOverlay *ovr)
 
     if (ovr->hasPlace) {
         Vector3 c = (Vector3){ ovr->placeX + 0.5f, ovr->placeY + 0.5f, ovr->placeZ + 0.5f };
-        DrawCubeWires(c, 1.05f, 1.05f, 1.05f, GREEN);
+        // DrawCubeWires(c, 1.05f, 1.05f, 1.05f, GREEN);
     }
 }
-
 
 // ---------- public API ----------
 void Render_Init(RenderConfig *rc)
@@ -228,27 +233,25 @@ void Render_Init(RenderConfig *rc)
     rc->drawHud = true;
     rc->drawCrosshair = true;
     rc->viewDistChunks = 4;
-
 }
 
-void Render_DrawFrame(
-    const RenderConfig *rc, 
-    Camera3D cam, 
-    const World *world, 
-    const RenderOverlay *ovr,
-    const Atlas *atlas,
-    const BlockRegistry *blocks,
-    const Hotbar *hotbar
-)
+void Render_DrawFrame(const RenderConfig *rc, const RenderFrameInput *in)
 {
+    if (!rc || !in) return;
+
+    const RenderOverlay *ovr = in->ovr;
+    Camera3D cam = in->cam;
+    const World *world = in->world;
+    const Atlas *atlas = in->atlas;
+    const BlockRegistry *blocks = in->blocks;
+    const Hotbar *hotbar = in->hotbar;
+
     BeginDrawing();
     ClearBackground(rc->clearColor);
 
     BeginMode3D(cam);
 
     Render_DrawWorld_Textured(world, cam.position, rc->viewDistChunks, atlas, blocks);
-
-    // BITNO: overlay mora biti unutar BeginMode3D/EndMode3D
     Render_DrawOverlay3D(ovr);
 
     if (rc->drawGrid) {
@@ -258,20 +261,18 @@ void Render_DrawFrame(
     EndMode3D();
 
     if (rc->drawHud) {
-        DrawText("WASD move | SHIFT sprint | Mouse look | LMB break | RMB place (ili E) | ESC quit", 20, 20, 20, RAYWHITE);
+        DrawText("WASD move | SHIFT sprint | Mouse look | LMB break | E place | ESC quit",
+                 20, 20, 20, RAYWHITE);
     }
 
     if (rc->drawCrosshair) {
         DrawCrosshair();
     }
 
-    // hotbar UI (2D)
-    if (hotbar && atlas && blocks) {
+    // hotbar UI (2D) - konzistentna provjera
+    if (hotbar && blocks && Atlas_IsLoaded(atlas)) {
         Hotbar_Draw(hotbar, atlas, blocks);
     }
-    // Debug (opcionalno): pokaži jel ima hit
-    // if (ovr && ovr->hasHit) DrawText("HIT", 20, 50, 20, GREEN);
-    // else DrawText("NO HIT", 20, 50, 20, RED);
 
     EndDrawing();
 }

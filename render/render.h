@@ -4,9 +4,11 @@
 #include "raylib.h"
 #include "world/world.h"
 
-#include "assets/atlas.h"
-#include "world/blocks.h"
-#include "ui/hotbar.h"
+// forward declarations (bez include-a)
+typedef struct Atlas Atlas;
+typedef struct BlockRegistry BlockRegistry;
+typedef struct Hotbar Hotbar;
+
 
 typedef struct RenderConfig {
     Color clearColor;
@@ -27,16 +29,17 @@ typedef struct RenderOverlay {
     int placeX, placeY, placeZ;
 } RenderOverlay;
 
+typedef struct RenderFrameInput {
+    Camera3D cam;
+    const World *world;
+    const RenderOverlay *ovr;
+    const Atlas *atlas;
+    const BlockRegistry *blocks;
+    const Hotbar *hotbar;
+} RenderFrameInput;
 
 void Render_Init(RenderConfig *rc);
-void Render_DrawFrame(
-    const RenderConfig *rc, 
-    Camera3D cam, 
-    const World *world, 
-    const RenderOverlay *ovr,
-    const Atlas *atlas,
-    const BlockRegistry *blocks,
-    const Hotbar *hotbar
-);
+
+void Render_DrawFrame(const RenderConfig *rc, const RenderFrameInput *in);
 
 #endif // RENDER_H

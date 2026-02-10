@@ -2,11 +2,11 @@
 #define BLOCKS_H
 
 #include <stdbool.h>
-#include "chunk.h"
+#include "core/block_id.h"
 
 typedef struct BlockDef {
     const char *name;
-    int tileX, tileY;   // atlas tile coords (0..)
+    int tileX, tileY;
     bool solid;
 } BlockDef;
 
@@ -17,4 +17,4 @@ typedef struct BlockRegistry {
 void Blocks_Init(BlockRegistry *br);
 const BlockDef *Blocks_Get(const BlockRegistry *br, BlockId id);
 
-#endif // BLOCKS_H
+#endif

@@ -5,17 +5,18 @@
 #include "raylib.h"
 
 typedef struct Atlas {
-    int tileSize;   // 32
-    int tilesX;     // sheetWidth / tileSize
-    int tilesY;     // sheetHeight / tileSize
-
-    Texture2D *tiles;   // tilesX*tilesY (svaki tile je zasebna tekstura)
+    Texture2D tex;      // cijeli spritesheet kao jedna textura
+    int texW, texH;      // dimenzije u pixelima
+    int tileSize;        // npr. 32
+    int tilesX, tilesY;  // koliko tileova po osi
 } Atlas;
 
 bool Atlas_Load(Atlas *a, const char *path, int tileSize);
 void Atlas_Unload(Atlas *a);
 
-// vrati tile teksturu; ako je out-of-range vrati (Texture2D){0}
-Texture2D Atlas_GetTile(const Atlas *a, int tileX, int tileY);
+bool Atlas_IsLoaded(const Atlas *a);
 
-#endif // ATLAS_H
+// source rect u pixelima (za DrawTexturePro / uv računanje)
+Rectangle Atlas_SourceRect(const Atlas *a, int tileX, int tileY);
+
+#endif

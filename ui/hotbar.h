@@ -4,7 +4,7 @@
 #include "raylib.h"
 #include "core/input.h"
 #include "assets/atlas.h"
-#include "world/blocks.h"
+#include "core/blocks.h"
 
 #define HOTBAR_SLOTS 9
 
