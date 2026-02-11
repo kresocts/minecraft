@@ -15,8 +15,16 @@
 #include "ui/hotbar.h"
 
 #include "render/sky.h"
-#define DAY_LENGTH_SEC 60.0f
+#include <math.h>   // dodaj na vrh
 
+#define DAY_LENGTH_SEC 60.0f
+static int FloorDivPosInt(int a, int b) // b > 0
+{
+    int q = a / b;
+    int r = a % b;
+    if (r < 0) q -= 1;
+    return q;
+}
 struct Game {
     Player player;
     InputState input;
@@ -94,6 +102,11 @@ void Game_Tick(Game *g)
     Player_Update(&g->player, &g->input, dt);
 
     Camera3D cam = Player_GetCamera(&g->player);
+    int camX = (int)floorf(cam.position.x);
+    int camZ = (int)floorf(cam.position.z);
+    int centerCX = FloorDivPosInt(camX, CHUNK_X);
+    int centerCZ = FloorDivPosInt(camZ, CHUNK_Z);
+    World_UpdateStreaming(&g->world, centerCX, centerCZ, g->rc.viewDistChunks);
     Sky_Update(&g->sky, dt);
 
     g->interact.placeBlock = Hotbar_SelectedBlock(&g->hotbar);

@@ -7,7 +7,7 @@ static int Chunk_Index(int lx, int ly, int lz)
 
 void Chunk_Clear(Chunk *c, BlockId fill)
 {
-    for (int i = 0; i < (CHUNK_X * CHUNK_Y * CHUNK_Z); i++) {
+    for (int i = 0; i < CHUNK_VOLUME; i++) {
         c->blocks[i] = fill;
     }
 }

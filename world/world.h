@@ -1,34 +1,48 @@
+// world/world.h
 #ifndef WORLD_H
 #define WORLD_H
 
-#include "chunk.h"
 #include <stdbool.h>
+#include "chunk.h"
 
-// koristi neparan broj da (0,0) bude u srednjem chunku
+// cache veličina (prozor u memoriji)
 #define WORLD_CHUNKS_X 9
 #define WORLD_CHUNKS_Z 9
 
-// chunk koordinate u svijetu (signed)
-#define WORLD_MIN_CHUNK_X (-(WORLD_CHUNKS_X/2))
-#define WORLD_MIN_CHUNK_Z (-(WORLD_CHUNKS_Z/2))
-#define WORLD_MAX_CHUNK_X (WORLD_MIN_CHUNK_X + WORLD_CHUNKS_X) // exclusive
-#define WORLD_MAX_CHUNK_Z (WORLD_MIN_CHUNK_Z + WORLD_CHUNKS_Z) // exclusive
+// visina svijeta (Minecraft-like)
+#define WORLD_HEIGHT 256
 
-// world granice u blokovima (signed)
-#define WORLD_MIN_X (WORLD_MIN_CHUNK_X * CHUNK_X)
-#define WORLD_MIN_Z (WORLD_MIN_CHUNK_Z * CHUNK_Z)
-#define WORLD_MAX_X (WORLD_MAX_CHUNK_X * CHUNK_X) // exclusive
-#define WORLD_MAX_Z (WORLD_MAX_CHUNK_Z * CHUNK_Z) // exclusive
+#if (WORLD_HEIGHT % CHUNK_Y) != 0
+#error WORLD_HEIGHT must be divisible by CHUNK_Y (16)
+#endif
 
-#define WORLD_SIZE_Y (CHUNK_Y)
+#define WORLD_SECTIONS_Y (WORLD_HEIGHT / CHUNK_Y)
+
+typedef struct ChunkColumn {
+    int cx, cz;                 // koje chunk koordinate ova kolona trenutno predstavlja
+    bool valid;                 // je li slot popunjen
+    Chunk sections[WORLD_SECTIONS_Y];
+} ChunkColumn;
 
 typedef struct World {
-    Chunk chunks[WORLD_CHUNKS_X][WORLD_CHUNKS_Z];
+    ChunkColumn columns[WORLD_CHUNKS_X][WORLD_CHUNKS_Z];
 } World;
 
-void   World_Init(World *w);
+// init: očisti sve + učita inicijalni “window” oko (0,0)
+void World_Init(World *w);
 
-bool   World_InBounds(int x, int y, int z);
+// streaming: osiguraj da su kolone oko (centerCX, centerCZ) učitane
+// viewDistChunks mora stati u cache: (2*viewDist+1) <= WORLD_CHUNKS_X/Z
+void World_UpdateStreaming(World *w, int centerCX, int centerCZ, int viewDistChunks);
+
+// queries
+bool World_InYBounds(int y);
+bool World_TryGetColumnIndex(const World *w, int cx, int cz, int *outIx, int *outIz);
+bool World_IsColumnLoaded(const World *w, int cx, int cz);
+const ChunkColumn *World_GetColumnConst(const World *w, int cx, int cz);
+ChunkColumn *World_GetColumn(World *w, int cx, int cz);
+
+// block access (ako kolona nije učitana: Get=BLOCK_AIR, Set=ignore)
 BlockId World_GetBlock(const World *w, int x, int y, int z);
 void    World_SetBlock(World *w, int x, int y, int z, BlockId id);
 

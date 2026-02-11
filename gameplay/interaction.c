@@ -27,7 +27,7 @@ void Interaction_Update(InteractionState *s, World *world, Camera3D cam, const I
             int py = s->hit.y + (int)s->hit.normal.y;
             int pz = s->hit.z + (int)s->hit.normal.z;
 
-            if (World_InBounds(px, py, pz) && World_GetBlock(world, px, py, pz) == BLOCK_AIR) {
+            if (World_InYBounds(py) && World_GetBlock(world, px, py, pz) == BLOCK_AIR) {
                 s->hasPlace = true;
                 s->placeX = px;
                 s->placeY = py;

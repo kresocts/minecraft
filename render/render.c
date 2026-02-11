@@ -1,12 +1,16 @@
 #include "render.h"
 #include <math.h>
-#include <stddef.h>
 #include "rlgl.h"
 
 #include "assets/atlas.h"
 #include "core/blocks.h"
 #include "ui/hotbar.h"
 #include "render/sky.h"
+
+// Ako ti World_TryGetColumnIndex nije u world.h (ili IntelliSense kuka),
+// ovo garantira da render.c zna potpis.
+// (Ako već postoji u headeru, ovo se i dalje slaže dok je potpis isti.)
+bool World_TryGetColumnIndex(const World *w, int cx, int cz, int *outIx, int *outIz);
 
 // ---------- helpers ----------
 static void DrawCrosshair(void)
@@ -20,13 +24,6 @@ static void DrawCrosshair(void)
     DrawLine(cx, cy - 6, cx, cy + 6, RAYWHITE);
 }
 
-static int ClampInt(int v, int mn, int mx)
-{
-    if (v < mn) return mn;
-    if (v > mx) return mx;
-    return v;
-}
-
 static int FloorDivPosInt(int a, int b) // b > 0
 {
     int q = a / b;
@@ -35,36 +32,47 @@ static int FloorDivPosInt(int a, int b) // b > 0
     return q;
 }
 
-static inline BlockId GetNeighborFast(const World *w, const Chunk *c,
+// --- neighbor lookup: fast in same column (including vertical section borders),
+//     World_GetBlock only when crossing X/Z column boundary ---
+static inline BlockId GetNeighborFast(const World *w,
+                                      int ix, int iz,
                                       int baseX, int baseZ,
-                                      int lx, int y, int lz,
+                                      int sy,
+                                      int lx, int ly, int lz,
                                       int dx, int dy, int dz)
 {
     int nx = lx + dx;
-    int ny = y  + dy;
     int nz = lz + dz;
 
-    if (ny < 0 || ny >= CHUNK_Y) return BLOCK_AIR;
+    int y  = sy * CHUNK_Y + ly;   // global y
+    int ny = y + dy;              // neighbor global y
 
-    // unutar istog chunka -> brzo
+    if (ny < 0 || ny >= WORLD_HEIGHT) return BLOCK_AIR;
+
+    // within same column (X/Z local ok) -> direct section access
     if ((unsigned)nx < CHUNK_X && (unsigned)nz < CHUNK_Z) {
-        return Chunk_GetLocal(c, nx, ny, nz);
+        int nsy = ny / CHUNK_Y;
+        int nly = ny - nsy * CHUNK_Y;
+        const Chunk *sec = &w->columns[ix][iz].sections[nsy];
+        return Chunk_GetLocal(sec, nx, nly, nz);
     }
 
-    // preko ruba -> world lookup
+    // crossing column boundary -> world lookup
     return World_GetBlock(w, baseX + nx, ny, baseZ + nz);
 }
 
-static bool IsExposedFast(const World *w, const Chunk *c,
+static bool IsExposedFast(const World *w,
+                          int ix, int iz,
                           int baseX, int baseZ,
-                          int lx, int y, int lz)
+                          int sy,
+                          int lx, int ly, int lz)
 {
     static const int dx[6] = {  1, -1,  0,  0,  0,  0 };
     static const int dy[6] = {  0,  0,  1, -1,  0,  0 };
     static const int dz[6] = {  0,  0,  0,  0,  1, -1 };
 
     for (int i = 0; i < 6; i++) {
-        if (GetNeighborFast(w, c, baseX, baseZ, lx, y, lz, dx[i], dy[i], dz[i]) == BLOCK_AIR) {
+        if (GetNeighborFast(w, ix, iz, baseX, baseZ, sy, lx, ly, lz, dx[i], dy[i], dz[i]) == BLOCK_AIR) {
             return true;
         }
     }
@@ -75,10 +83,10 @@ typedef struct FaceUV { float u0, v0, u1, v1; } FaceUV;
 
 static FaceUV UVFromSrcPx(const Atlas *a, Rectangle srcPx)
 {
-    // srcPx.y je od gore, OpenGL UV je od dolje -> invert V
     float u0 = srcPx.x / (float)a->texW;
     float u1 = (srcPx.x + srcPx.width) / (float)a->texW;
 
+    // invert V (srcPx.y is top-down, OpenGL UV is bottom-up)
     float v0 = 1.0f - (srcPx.y + srcPx.height) / (float)a->texH;
     float v1 = 1.0f - (srcPx.y) / (float)a->texH;
 
@@ -178,58 +186,63 @@ static void Render_DrawWorld_Textured(
     int centerCX = FloorDivPosInt(camX, CHUNK_X);
     int centerCZ = FloorDivPosInt(camZ, CHUNK_Z);
 
-    int minCX = ClampInt(centerCX - viewDistChunks, WORLD_MIN_CHUNK_X, WORLD_MAX_CHUNK_X - 1);
-    int maxCX = ClampInt(centerCX + viewDistChunks, WORLD_MIN_CHUNK_X, WORLD_MAX_CHUNK_X - 1);
-    int minCZ = ClampInt(centerCZ - viewDistChunks, WORLD_MIN_CHUNK_Z, WORLD_MAX_CHUNK_Z - 1);
-    int maxCZ = ClampInt(centerCZ + viewDistChunks, WORLD_MIN_CHUNK_Z, WORLD_MAX_CHUNK_Z - 1);
+    int minCX = centerCX - viewDistChunks;
+    int maxCX = centerCX + viewDistChunks;
+    int minCZ = centerCZ - viewDistChunks;
+    int maxCZ = centerCZ + viewDistChunks;
 
     bool hasAtlas = Atlas_IsLoaded(atlas) && blocks;
 
     for (int cx = minCX; cx <= maxCX; cx++) {
         for (int cz = minCZ; cz <= maxCZ; cz++) {
 
-            int ix = cx - WORLD_MIN_CHUNK_X;
-            int iz = cz - WORLD_MIN_CHUNK_Z;
-
-            const Chunk *c = &w->chunks[ix][iz];
+            int ix, iz;
+            if (!World_TryGetColumnIndex(w, cx, cz, &ix, &iz)) continue;
 
             int baseX = cx * CHUNK_X;
             int baseZ = cz * CHUNK_Z;
 
-            for (int lx = 0; lx < CHUNK_X; lx++) {
-                for (int y = 0; y < CHUNK_Y; y++) {
-                    for (int lz = 0; lz < CHUNK_Z; lz++) {
+            for (int sy = 0; sy < WORLD_SECTIONS_Y; sy++) {
+                const Chunk *sec = &w->columns[ix][iz].sections[sy];
+                int baseY = sy * CHUNK_Y;
 
-                        BlockId id = Chunk_GetLocal(c, lx, y, lz);
-                        if (id == BLOCK_AIR) continue;
+                for (int lx = 0; lx < CHUNK_X; lx++) {
+                    for (int ly = 0; ly < CHUNK_Y; ly++) {
+                        for (int lz = 0; lz < CHUNK_Z; lz++) {
 
-                        if (!IsExposedFast(w, c, baseX, baseZ, lx, y, lz)) continue;
+                            BlockId id = Chunk_GetLocal(sec, lx, ly, lz);
+                            if (id == BLOCK_AIR) continue;
 
-                        int x = baseX + lx;
-                        int z = baseZ + lz;
-                        Vector3 center = (Vector3){ x + 0.5f, y + 0.5f, z + 0.5f };
+                            if (!IsExposedFast(w, ix, iz, baseX, baseZ, sy, lx, ly, lz)) continue;
 
-                        if (hasAtlas) {
-                            const BlockDef *def = Blocks_Get(blocks, id);
-                            if (def) {
-                                Rectangle srcFront = Atlas_SourceRectFromTileId(atlas, def->tile[FACE_FRONT]);
-                                if (srcFront.width > 0.0f) {
+                            int x = baseX + lx;
+                            int y = baseY + ly;
+                            int z = baseZ + lz;
 
-                                    Rectangle src[FACE_COUNT];
-                                    src[FACE_FRONT] = srcFront;
+                            Vector3 center = (Vector3){ x + 0.5f, y + 0.5f, z + 0.5f };
 
-                                    for (int f = 1; f < FACE_COUNT; f++) {
-                                        Rectangle r = Atlas_SourceRectFromTileId(atlas, def->tile[f]);
-                                        src[f] = (r.width > 0.0f) ? r : srcFront;
+                            if (hasAtlas) {
+                                const BlockDef *def = Blocks_Get(blocks, id);
+                                if (def) {
+                                    Rectangle srcFront = Atlas_SourceRectFromTileId(atlas, def->tile[FACE_FRONT]);
+                                    if (srcFront.width > 0.0f) {
+
+                                        Rectangle src[FACE_COUNT];
+                                        src[FACE_FRONT] = srcFront;
+
+                                        for (int f = 1; f < FACE_COUNT; f++) {
+                                            Rectangle r = Atlas_SourceRectFromTileId(atlas, def->tile[f]);
+                                            src[f] = (r.width > 0.0f) ? r : srcFront;
+                                        }
+
+                                        DrawCubeTexturedAtlas6(atlas, src, center, 1.0f, 1.0f, 1.0f);
+                                        continue;
                                     }
-
-                                    DrawCubeTexturedAtlas6(atlas, src, center, 1.0f, 1.0f, 1.0f);
-                                    continue;
                                 }
                             }
-                        }
 
-                        DrawCube(center, 1.0f, 1.0f, 1.0f, (Color){ 120,120,120,255 });
+                            DrawCube(center, 1.0f, 1.0f, 1.0f, (Color){ 120,120,120,255 });
+                        }
                     }
                 }
             }
@@ -244,11 +257,6 @@ static void Render_DrawOverlay3D(const RenderOverlay *ovr)
     if (ovr->hasHit) {
         Vector3 c = (Vector3){ ovr->hitX + 0.5f, ovr->hitY + 0.5f, ovr->hitZ + 0.5f };
         DrawCubeWires(c, 1.05f, 1.05f, 1.05f, YELLOW);
-    }
-
-    if (ovr->hasPlace) {
-        Vector3 c = (Vector3){ ovr->placeX + 0.5f, ovr->placeY + 0.5f, ovr->placeZ + 0.5f };
-        // DrawCubeWires(c, 1.05f, 1.05f, 1.05f, GREEN);
     }
 }
 
@@ -270,7 +278,7 @@ void Render_DrawFrame(const RenderConfig *rc, const RenderFrameInput *in)
 
     const RenderOverlay *ovr = in->ovr;
     Camera3D cam = in->cam;
-        const Sky *sky = in->sky;
+    const Sky *sky = in->sky;
 
     const World *world = in->world;
     const Atlas *atlas = in->atlas;
@@ -282,20 +290,12 @@ void Render_DrawFrame(const RenderConfig *rc, const RenderFrameInput *in)
 
     BeginMode3D(cam);
 
-    // 1) nebo prvo (unutar 3D moda)
-    if (sky) {
-        Sky_Draw3D(sky, cam);
-    }
+    if (sky) Sky_Draw3D(sky, cam);
 
-    // 2) onda svijet (blokovi će "preko" neba)
     Render_DrawWorld_Textured(world, cam.position, rc->viewDistChunks, atlas, blocks);
-
-    // 3) overlay
     Render_DrawOverlay3D(ovr);
 
-    if (rc->drawGrid) {
-        DrawGrid(rc->gridSlices, rc->gridSpacing);
-    }
+    if (rc->drawGrid) DrawGrid(rc->gridSlices, rc->gridSpacing);
 
     EndMode3D();
 
@@ -304,11 +304,8 @@ void Render_DrawFrame(const RenderConfig *rc, const RenderFrameInput *in)
                  20, 20, 20, RAYWHITE);
     }
 
-    if (rc->drawCrosshair) {
-        DrawCrosshair();
-    }
+    if (rc->drawCrosshair) DrawCrosshair();
 
-    // hotbar UI (2D)
     if (hotbar && blocks && Atlas_IsLoaded(atlas)) {
         Hotbar_Draw(hotbar, atlas, blocks);
     }
