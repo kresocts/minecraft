@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include "chunk.h"
+#include "world_gen.h"
 
 // cache veličina (prozor u memoriji)
 #define WORLD_CHUNKS_X 9
@@ -26,6 +27,7 @@ typedef struct ChunkColumn {
 
 typedef struct World {
     ChunkColumn columns[WORLD_CHUNKS_X][WORLD_CHUNKS_Z];
+    WorldGen gen;
 } World;
 
 // init: očisti sve + učita inicijalni “window” oko (0,0)

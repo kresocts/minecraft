@@ -1,5 +1,6 @@
 // world/world.c
 #include "world.h"
+#include "world_gen.h"  // na vrh
 
 #include <math.h>
 #include <stdint.h>
@@ -52,78 +53,13 @@ bool World_InYBounds(int y)
     return (y >= 0 && y < WORLD_HEIGHT);
 }
 
-// ---------- very simple placeholder generator (kasnije ide u world_gen.*) ----------
-static float Hash01(int x, int z)
-{
-    // deterministic hash -> 0..1
-    uint32_t h = (uint32_t)(x) * 374761393u + (uint32_t)(z) * 668265263u;
-    h = (h ^ (h >> 13u)) * 1274126177u;
-    h ^= (h >> 16u);
-    return (float)(h & 0x00FFFFFFu) * (1.0f / 16777216.0f);
-}
 
-static int HeightAt(int x, int z)
-{
-    // baseline da ti spawn i postojeći gameplay ne “padnu” (grass oko y≈2..8)
-    float n = Hash01(x, z);          // 0..1
-    int base = 3;                    // grass na y=2 kad je height=3
-    int amp  = 7;                    // do ~10
-    return base + (int)floorf(n * (float)amp);
-}
+
 
 static void Column_Clear(ChunkColumn *col)
 {
     for (int sy = 0; sy < WORLD_SECTIONS_Y; sy++) {
         Chunk_Clear(&col->sections[sy], BLOCK_AIR);
-    }
-}
-
-static void Column_SetLocal(ChunkColumn *col, int lx, int y, int lz, BlockId id)
-{
-    if (!World_InYBounds(y)) return;
-    int sy = y / CHUNK_Y;
-    int ly = y - sy * CHUNK_Y;
-    Chunk_SetLocal(&col->sections[sy], lx, ly, lz, id);
-}
-
-static void World_GenerateColumn(ChunkColumn *col)
-{
-    Column_Clear(col);
-
-    int baseX = col->cx * CHUNK_X;
-    int baseZ = col->cz * CHUNK_Z;
-
-    for (int lx = 0; lx < CHUNK_X; lx++) {
-        for (int lz = 0; lz < CHUNK_Z; lz++) {
-
-            int wx = baseX + lx;
-            int wz = baseZ + lz;
-
-            int h = HeightAt(wx, wz);               // “surface” = h-1
-            if (h < 1) h = 1;
-            if (h > WORLD_HEIGHT) h = WORLD_HEIGHT;
-
-            int topY = h - 1;
-
-            // stone duboko
-            for (int y = 0; y <= topY - 3; y++) {
-                Column_SetLocal(col, lx, y, lz, BLOCK_STONE);
-            }
-            // 2 sloja dirt
-            if (topY - 2 >= 0) Column_SetLocal(col, lx, topY - 2, lz, BLOCK_DIRT);
-            if (topY - 1 >= 0) Column_SetLocal(col, lx, topY - 1, lz, BLOCK_DIRT);
-
-            // grass na vrhu
-            Column_SetLocal(col, lx, topY, lz, BLOCK_GRASS);
-        }
-    }
-
-    // mali debug “pillar” na (0,0) kao prije (da znaš gdje si)
-    if (col->cx == 0 && col->cz == 0) {
-        for (int y = 3; y < 16 && y < WORLD_HEIGHT; y++) {
-            Column_SetLocal(col, 0, y, 0, BLOCK_STONE);
-            Column_SetLocal(col, 1, y, 0, BLOCK_STONE);
-        }
     }
 }
 
@@ -166,7 +102,7 @@ static ChunkColumn *World_EnsureColumn(World *w, int cx, int cz)
         col->cx = cx;
         col->cz = cz;
         col->valid = true;
-        World_GenerateColumn(col);
+        WorldGen_GenerateColumn(&w->gen, cx, cz, col->sections, WORLD_SECTIONS_Y);
     }
 
     return col;
@@ -194,6 +130,7 @@ void World_UpdateStreaming(World *w, int centerCX, int centerCZ, int viewDistChu
 void World_Init(World *w)
 {
     if (!w) return;
+    WorldGen_Init(&w->gen, 0xC0FFEEu, WorldGen_DefaultParams());
 
     // invalidate sve slotove
     for (int sx = 0; sx < WORLD_CHUNKS_X; sx++) {
