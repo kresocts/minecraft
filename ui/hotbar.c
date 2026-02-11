@@ -1,5 +1,6 @@
 #include "hotbar.h"
 #include <stddef.h>
+
 #include "raylib.h"
 #include "assets/atlas.h"
 #include "core/blocks.h"
@@ -17,7 +18,6 @@ void Hotbar_Init(Hotbar *h)
     h->scale = 2.0f;
     h->selected = 0;
 
-    // default slotovi (primjer)
     h->slots[0] = BLOCK_DIRT;
     h->slots[1] = BLOCK_GRASS;
     h->slots[2] = BLOCK_STONE;
@@ -52,6 +52,7 @@ void Hotbar_Draw(const Hotbar *h, const Atlas *atlas, const BlockRegistry *block
     int y = GetScreenHeight() - slotSize - 20;
 
     bool canDrawIcons = Atlas_IsLoaded(atlas) && blocks;
+    BlockFace iconFace = FACE_TOP;
 
     for (int i = 0; i < HOTBAR_SLOTS; i++) {
         int x = startX + i * slotSize;
@@ -64,13 +65,14 @@ void Hotbar_Draw(const Hotbar *h, const Atlas *atlas, const BlockRegistry *block
 
         DrawRectangleLines(x, y, slotSize, slotSize, border);
 
-        // ikona
         if (canDrawIcons) {
             BlockId id = h->slots[i];
             const BlockDef *def = Blocks_Get(blocks, id);
 
-            if (def && def->tileX >= 0 && def->tileY >= 0) {
-                Rectangle src = Atlas_SourceRect(atlas, def->tileX, def->tileY);
+            if (def) {
+                int tileId = def->tile[iconFace];
+
+                Rectangle src = Atlas_SourceRectFromTileId(atlas, tileId);
                 if (src.width > 0.0f && src.height > 0.0f) {
                     Rectangle dst = (Rectangle){
                         (float)(x + pad),
@@ -78,24 +80,23 @@ void Hotbar_Draw(const Hotbar *h, const Atlas *atlas, const BlockRegistry *block
                         (float)slotInner * h->scale,
                         (float)slotInner * h->scale
                     };
-
                     DrawTexturePro(atlas->tex, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
                 }
             }
         }
 
-        // mali broj slot-a
         DrawText(TextFormat("%d", i + 1), x + 4, y + 2, 16, (Color){ 255, 255, 255, 180 });
     }
 
-    // label iznad hotbara (samo jednom, van petlje)
+    // label iznad hotbara (jednom)
     if (blocks) {
         BlockId selId = h->slots[h->selected];
         const BlockDef *selDef = Blocks_Get(blocks, selId);
 
         if (selDef) {
-            const char *label = TextFormat("%s  (id=%d, tile=%d,%d)",
-                                           selDef->name, (int)selId, selDef->tileX, selDef->tileY);
+            int tileId = selDef->tile[iconFace];
+            const char *label = TextFormat("%s  (id=%d, tileId=%d)",
+                                           selDef->name, (int)selId, tileId);
             int tw = MeasureText(label, 20);
             DrawText(label, (GetScreenWidth() - tw) / 2, y - 28, 20, RAYWHITE);
         }

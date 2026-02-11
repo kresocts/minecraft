@@ -20,6 +20,7 @@ typedef struct RenderConfig {
     int viewDistChunks; // koliko chunkova u svaku stranu (npr. 4 = 9x9 chunkova)
 
 } RenderConfig;
+typedef struct Sky Sky;
 
 typedef struct RenderOverlay {
     bool hasHit;
@@ -36,6 +37,8 @@ typedef struct RenderFrameInput {
     const Atlas *atlas;
     const BlockRegistry *blocks;
     const Hotbar *hotbar;
+    const Sky *sky;
+
 } RenderFrameInput;
 
 void Render_Init(RenderConfig *rc);

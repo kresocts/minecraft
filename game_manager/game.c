@@ -14,6 +14,9 @@
 #include "core/blocks.h"
 #include "ui/hotbar.h"
 
+#include "render/sky.h"
+#define DAY_LENGTH_SEC 60.0f
+
 struct Game {
     Player player;
     InputState input;
@@ -27,6 +30,8 @@ struct Game {
     Atlas atlas;
     BlockRegistry blocks;
     Hotbar hotbar;
+
+    Sky sky;
 };
 
 Game *Game_Create(void)
@@ -55,12 +60,17 @@ Game *Game_Create(void)
 
     Interaction_Init(&g->interact);
 
+    Sky_Init(&g->sky, DAY_LENGTH_SEC); 
+    
     return g;
 }
 
 void Game_Destroy(Game *g)
 {
     if (!g) return;
+
+    Sky_Unload(&g->sky);  
+
     Atlas_Unload(&g->atlas);
 
     CloseWindow();
@@ -84,9 +94,11 @@ void Game_Tick(Game *g)
     Player_Update(&g->player, &g->input, dt);
 
     Camera3D cam = Player_GetCamera(&g->player);
+    Sky_Update(&g->sky, dt);
 
     g->interact.placeBlock = Hotbar_SelectedBlock(&g->hotbar);
     Interaction_Update(&g->interact, &g->world, cam, &g->input);
+
 
     RenderOverlay ovr = (RenderOverlay){0};
 
@@ -110,7 +122,8 @@ void Game_Tick(Game *g)
         .ovr = &ovr,
         .atlas = &g->atlas,
         .blocks = &g->blocks,
-        .hotbar = &g->hotbar
+        .hotbar = &g->hotbar,
+        .sky = &g->sky 
     };
 
     Render_DrawFrame(&g->rc, &rfi);

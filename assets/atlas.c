@@ -42,6 +42,20 @@ bool Atlas_IsLoaded(const Atlas *a)
     return a && a->tex.id != 0 && a->tilesX > 0 && a->tilesY > 0;
 }
 
+bool Atlas_TileIdToXY(const Atlas *a, int tileId, int *outX, int *outY)
+{
+    if (!Atlas_IsLoaded(a) || tileId < 0) return false;
+
+    int tx = tileId % a->tilesX;
+    int ty = tileId / a->tilesX;
+
+    if (ty < 0 || ty >= a->tilesY) return false;
+
+    if (outX) *outX = tx;
+    if (outY) *outY = ty;
+    return true;
+}
+
 Rectangle Atlas_SourceRect(const Atlas *a, int tileX, int tileY)
 {
     if (!Atlas_IsLoaded(a)) return (Rectangle){0};
@@ -55,4 +69,11 @@ Rectangle Atlas_SourceRect(const Atlas *a, int tileX, int tileY)
         (float)a->tileSize,
         (float)a->tileSize
     };
+}
+
+Rectangle Atlas_SourceRectFromTileId(const Atlas *a, int tileId)
+{
+    int tx, ty;
+    if (!Atlas_TileIdToXY(a, tileId, &tx, &ty)) return (Rectangle){0};
+    return Atlas_SourceRect(a, tx, ty);
 }

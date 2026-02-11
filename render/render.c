@@ -6,6 +6,7 @@
 #include "assets/atlas.h"
 #include "core/blocks.h"
 #include "ui/hotbar.h"
+#include "render/sky.h"
 
 // ---------- helpers ----------
 static void DrawCrosshair(void)
@@ -70,73 +71,94 @@ static bool IsExposedFast(const World *w, const Chunk *c,
     return false;
 }
 
-static void DrawCubeTexturedAtlas(Texture2D atlasTex, int atlasW, int atlasH,
-                                  Rectangle srcPx, Vector3 center,
-                                  float w, float h, float l)
+typedef struct FaceUV { float u0, v0, u1, v1; } FaceUV;
+
+static FaceUV UVFromSrcPx(const Atlas *a, Rectangle srcPx)
+{
+    // srcPx.y je od gore, OpenGL UV je od dolje -> invert V
+    float u0 = srcPx.x / (float)a->texW;
+    float u1 = (srcPx.x + srcPx.width) / (float)a->texW;
+
+    float v0 = 1.0f - (srcPx.y + srcPx.height) / (float)a->texH;
+    float v1 = 1.0f - (srcPx.y) / (float)a->texH;
+
+    FaceUV uv = { u0, v0, u1, v1 };
+    return uv;
+}
+
+static void DrawCubeTexturedAtlas6(const Atlas *atlas, const Rectangle srcPx[FACE_COUNT],
+                                  Vector3 center, float w, float h, float l)
 {
     float x0 = center.x - w*0.5f, x1 = center.x + w*0.5f;
     float y0 = center.y - h*0.5f, y1 = center.y + h*0.5f;
     float z0 = center.z - l*0.5f, z1 = center.z + l*0.5f;
 
-    // --- UVs (pixel -> normalized), s half-pixel inset protiv bleedinga ---
-    float invW = 1.0f / (float)atlasW;
-    float invH = 1.0f / (float)atlasH;
+    FaceUV uv[FACE_COUNT];
+    for (int i = 0; i < FACE_COUNT; i++) uv[i] = UVFromSrcPx(atlas, srcPx[i]);
 
-    float hx = 0.5f * invW;
-    float hy = 0.5f * invH;
-
-    float u0 = (srcPx.x) * invW + hx;
-    float u1 = (srcPx.x + srcPx.width) * invW - hx;
-
-    // invert V: srcPx.y je od gore, UV je od dolje
-    float v1 = 1.0f - (srcPx.y) * invH - hy;
-    float v0 = 1.0f - (srcPx.y + srcPx.height) * invH + hy;
-
-    rlSetTexture(atlasTex.id);
+    rlSetTexture(atlas->tex.id);
     rlBegin(RL_QUADS);
     rlColor4ub(255, 255, 255, 255);
 
-    // Front (+Z)
-    rlNormal3f(0, 0, 1);
-    rlTexCoord2f(u0, v1); rlVertex3f(x0, y0, z1);
-    rlTexCoord2f(u1, v1); rlVertex3f(x1, y0, z1);
-    rlTexCoord2f(u1, v0); rlVertex3f(x1, y1, z1);
-    rlTexCoord2f(u0, v0); rlVertex3f(x0, y1, z1);
+    // FRONT (+Z)
+    {
+        FaceUV t = uv[FACE_FRONT];
+        rlNormal3f(0, 0, 1);
+        rlTexCoord2f(t.u0, t.v1); rlVertex3f(x0, y0, z1);
+        rlTexCoord2f(t.u1, t.v1); rlVertex3f(x1, y0, z1);
+        rlTexCoord2f(t.u1, t.v0); rlVertex3f(x1, y1, z1);
+        rlTexCoord2f(t.u0, t.v0); rlVertex3f(x0, y1, z1);
+    }
 
-    // Back (-Z)
-    rlNormal3f(0, 0, -1);
-    rlTexCoord2f(u0, v1); rlVertex3f(x1, y0, z0);
-    rlTexCoord2f(u1, v1); rlVertex3f(x0, y0, z0);
-    rlTexCoord2f(u1, v0); rlVertex3f(x0, y1, z0);
-    rlTexCoord2f(u0, v0); rlVertex3f(x1, y1, z0);
+    // BACK (-Z)
+    {
+        FaceUV t = uv[FACE_BACK];
+        rlNormal3f(0, 0, -1);
+        rlTexCoord2f(t.u0, t.v1); rlVertex3f(x1, y0, z0);
+        rlTexCoord2f(t.u1, t.v1); rlVertex3f(x0, y0, z0);
+        rlTexCoord2f(t.u1, t.v0); rlVertex3f(x0, y1, z0);
+        rlTexCoord2f(t.u0, t.v0); rlVertex3f(x1, y1, z0);
+    }
 
-    // Right (+X)
-    rlNormal3f(1, 0, 0);
-    rlTexCoord2f(u0, v1); rlVertex3f(x1, y0, z1);
-    rlTexCoord2f(u1, v1); rlVertex3f(x1, y0, z0);
-    rlTexCoord2f(u1, v0); rlVertex3f(x1, y1, z0);
-    rlTexCoord2f(u0, v0); rlVertex3f(x1, y1, z1);
+    // LEFT (-X)
+    {
+        FaceUV t = uv[FACE_LEFT];
+        rlNormal3f(-1, 0, 0);
+        rlTexCoord2f(t.u0, t.v1); rlVertex3f(x0, y0, z0);
+        rlTexCoord2f(t.u1, t.v1); rlVertex3f(x0, y0, z1);
+        rlTexCoord2f(t.u1, t.v0); rlVertex3f(x0, y1, z1);
+        rlTexCoord2f(t.u0, t.v0); rlVertex3f(x0, y1, z0);
+    }
 
-    // Left (-X)
-    rlNormal3f(-1, 0, 0);
-    rlTexCoord2f(u0, v1); rlVertex3f(x0, y0, z0);
-    rlTexCoord2f(u1, v1); rlVertex3f(x0, y0, z1);
-    rlTexCoord2f(u1, v0); rlVertex3f(x0, y1, z1);
-    rlTexCoord2f(u0, v0); rlVertex3f(x0, y1, z0);
+    // RIGHT (+X)
+    {
+        FaceUV t = uv[FACE_RIGHT];
+        rlNormal3f(1, 0, 0);
+        rlTexCoord2f(t.u0, t.v1); rlVertex3f(x1, y0, z1);
+        rlTexCoord2f(t.u1, t.v1); rlVertex3f(x1, y0, z0);
+        rlTexCoord2f(t.u1, t.v0); rlVertex3f(x1, y1, z0);
+        rlTexCoord2f(t.u0, t.v0); rlVertex3f(x1, y1, z1);
+    }
 
-    // Top (+Y)
-    rlNormal3f(0, 1, 0);
-    rlTexCoord2f(u0, v1); rlVertex3f(x0, y1, z1);
-    rlTexCoord2f(u1, v1); rlVertex3f(x1, y1, z1);
-    rlTexCoord2f(u1, v0); rlVertex3f(x1, y1, z0);
-    rlTexCoord2f(u0, v0); rlVertex3f(x0, y1, z0);
+    // TOP (+Y)
+    {
+        FaceUV t = uv[FACE_TOP];
+        rlNormal3f(0, 1, 0);
+        rlTexCoord2f(t.u0, t.v1); rlVertex3f(x0, y1, z1);
+        rlTexCoord2f(t.u1, t.v1); rlVertex3f(x1, y1, z1);
+        rlTexCoord2f(t.u1, t.v0); rlVertex3f(x1, y1, z0);
+        rlTexCoord2f(t.u0, t.v0); rlVertex3f(x0, y1, z0);
+    }
 
-    // Bottom (-Y)
-    rlNormal3f(0, -1, 0);
-    rlTexCoord2f(u0, v1); rlVertex3f(x0, y0, z0);
-    rlTexCoord2f(u1, v1); rlVertex3f(x1, y0, z0);
-    rlTexCoord2f(u1, v0); rlVertex3f(x1, y0, z1);
-    rlTexCoord2f(u0, v0); rlVertex3f(x0, y0, z1);
+    // BOTTOM (-Y)
+    {
+        FaceUV t = uv[FACE_BOTTOM];
+        rlNormal3f(0, -1, 0);
+        rlTexCoord2f(t.u0, t.v1); rlVertex3f(x0, y0, z0);
+        rlTexCoord2f(t.u1, t.v1); rlVertex3f(x1, y0, z0);
+        rlTexCoord2f(t.u1, t.v0); rlVertex3f(x1, y0, z1);
+        rlTexCoord2f(t.u0, t.v0); rlVertex3f(x0, y0, z1);
+    }
 
     rlEnd();
     rlSetTexture(0);
@@ -189,17 +211,24 @@ static void Render_DrawWorld_Textured(
 
                         if (hasAtlas) {
                             const BlockDef *def = Blocks_Get(blocks, id);
-                            if (def && def->tileX >= 0 && def->tileY >= 0) {
-                                Rectangle src = Atlas_SourceRect(atlas, def->tileX, def->tileY);
-                                if (src.width > 0.0f && src.height > 0.0f) {
-                                    DrawCubeTexturedAtlas(atlas->tex, atlas->texW, atlas->texH,
-                                                          src, center, 1.0f, 1.0f, 1.0f);
+                            if (def) {
+                                Rectangle srcFront = Atlas_SourceRectFromTileId(atlas, def->tile[FACE_FRONT]);
+                                if (srcFront.width > 0.0f) {
+
+                                    Rectangle src[FACE_COUNT];
+                                    src[FACE_FRONT] = srcFront;
+
+                                    for (int f = 1; f < FACE_COUNT; f++) {
+                                        Rectangle r = Atlas_SourceRectFromTileId(atlas, def->tile[f]);
+                                        src[f] = (r.width > 0.0f) ? r : srcFront;
+                                    }
+
+                                    DrawCubeTexturedAtlas6(atlas, src, center, 1.0f, 1.0f, 1.0f);
                                     continue;
                                 }
                             }
                         }
 
-                        // fallback ako nema atlasa / tile nije definiran
                         DrawCube(center, 1.0f, 1.0f, 1.0f, (Color){ 120,120,120,255 });
                     }
                 }
@@ -241,6 +270,8 @@ void Render_DrawFrame(const RenderConfig *rc, const RenderFrameInput *in)
 
     const RenderOverlay *ovr = in->ovr;
     Camera3D cam = in->cam;
+        const Sky *sky = in->sky;
+
     const World *world = in->world;
     const Atlas *atlas = in->atlas;
     const BlockRegistry *blocks = in->blocks;
@@ -251,7 +282,15 @@ void Render_DrawFrame(const RenderConfig *rc, const RenderFrameInput *in)
 
     BeginMode3D(cam);
 
+    // 1) nebo prvo (unutar 3D moda)
+    if (sky) {
+        Sky_Draw3D(sky, cam);
+    }
+
+    // 2) onda svijet (blokovi će "preko" neba)
     Render_DrawWorld_Textured(world, cam.position, rc->viewDistChunks, atlas, blocks);
+
+    // 3) overlay
     Render_DrawOverlay3D(ovr);
 
     if (rc->drawGrid) {
@@ -269,7 +308,7 @@ void Render_DrawFrame(const RenderConfig *rc, const RenderFrameInput *in)
         DrawCrosshair();
     }
 
-    // hotbar UI (2D) - konzistentna provjera
+    // hotbar UI (2D)
     if (hotbar && blocks && Atlas_IsLoaded(atlas)) {
         Hotbar_Draw(hotbar, atlas, blocks);
     }
